@@ -1,0 +1,9 @@
+QUANTITATIVE RESULTS FOR THESIS
+==================================================
+Nominal Max Height: 0.508 m
+Nominal Max Pitch: ±0.0°
+Stable Settling Time: 0.001 s
+Stable Max Overshoot: 0.0°
+Stable Landing Angle: -0.0°
+
+Stability Limits:

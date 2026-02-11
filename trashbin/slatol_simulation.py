@@ -366,4 +366,4 @@ if __name__ == "__main__":
         print("ERROR: PyBullet not installed. Run: pip install pybullet")
         exit(1)
     
-    main()
+    main()  
