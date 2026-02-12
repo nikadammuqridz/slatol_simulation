@@ -1,42 +1,59 @@
 """
 SLATOL Main Experiment
-Parameter sweep over μ and η, generate results and figures
+FIXED: Added interactive debug mode, figure handling
 Nik Adam Muqridz (2125501)
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 import csv
+import sys
 from simulation import run_single_trial
 
-# ------------------ CONFIGURATION ------------------
 MASS_RATIOS = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 WIND_RATIOS = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
 TOTAL_MASS = 1.0
 GRAVITY = 9.81
 
-def main():
-    print("SLATOL Experiment - Proper Implementation")
-    print("="*60)
+def run_debug():
+    """Interactive debug: single trial with GUI kept open."""
+    print("\n🔧 DEBUG MODE")
+    try:
+        mu = float(input("Enter leg mass ratio μ (0.05-0.30): "))
+        eta = float(input("Enter wind ratio η (0.0-0.5): "))
+    except:
+        print("Invalid input. Using μ=0.20, η=0.20")
+        mu, eta = 0.20, 0.20
 
+    print(f"\nRunning single trial: μ={mu:.2f}, η={eta:.2f} with GUI...")
+    res = run_single_trial(mu, eta, trial_id=999,
+                           use_gui=True, debug=True, max_time=5.0)
+    print(f"Result: {'SUCCESS' if res['success'] else 'FAIL'} ({res['failure_cause']})")
+    print(f"Max pitch: {res['max_pitch']:.2f}°, Max height: {res['max_height']:.2f}m")
+    if res['wind_applied']:
+        print(f"Wind applied at t={res['wind_time']:.3f}s")
+
+def run_sweep():
+    """Full parameter sweep."""
+    print("\n📊 Running full parameter sweep (36 trials)...")
     results = []
     trial_counter = 0
 
-    # --- Parameter sweep (nested loop) ---
     for mu in MASS_RATIOS:
         for eta in WIND_RATIOS:
             trial_counter += 1
             print(f"Trial {trial_counter:2d}: μ={mu:.2f}, η={eta:.2f} ...", end='', flush=True)
 
-            # Use GUI for first few trials to visually verify, then DIRECT for speed
+            # Use GUI for first 3 trials only
             use_gui = (trial_counter <= 3)
-            res = run_single_trial(mu, eta, trial_counter, use_gui=use_gui, max_time=3.0)
+            res = run_single_trial(mu, eta, trial_counter,
+                                   use_gui=use_gui, debug=False, max_time=3.0)
 
             results.append(res)
             status = "✓" if res['success'] else "✗"
             print(f" {status}  max_pitch={res['max_pitch']:.1f}°, max_height={res['max_height']:.2f}m")
 
-    # --- Save CSV ---
+    # Save CSV
     csv_file = "pybullet_results_final.csv"
     with open(csv_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=['mu', 'eta', 'success',
@@ -55,21 +72,21 @@ def main():
             })
     print(f"\nResults saved to {csv_file}")
 
-    # --- Generate Figures for Thesis ---
+    # Generate figures
+    generate_figures(results)
+
+def generate_figures(results):
+    """Generate thesis figures from sweep results."""
     print("Generating figures...")
 
-    # ------------------------------------------------------------
     # Figure 4.1: Nominal flight (μ=0.05, η=0.0)
-    # ------------------------------------------------------------
-    print("  Figure 4.1: Nominal flight")
-    # Find a successful nominal trial
     nom = next((r for r in results if r['mu']==0.05 and r['eta']==0.0), None)
-    if nom:
+    if nom and nom['success']:
         plt.figure(figsize=(10,6))
         plt.subplot(2,1,1)
         plt.plot(nom['time'], nom['height'], 'b-', linewidth=2)
         plt.ylabel('CoM Height (m)')
-        plt.title(f'Figure 4.1: Nominal Flight Performance (μ=0.05, η=0.00)')
+        plt.title('Figure 4.1: Nominal Flight Performance (μ=0.05, η=0.00)')
         plt.grid(True, alpha=0.3)
         plt.ylim(0,1.0)
         plt.subplot(2,1,2)
@@ -81,18 +98,17 @@ def main():
         plt.tight_layout()
         plt.savefig('figure_4_1_nominal.png', dpi=300)
         plt.close()
+        print("  ✅ Figure 4.1 saved")
+    else:
+        print("  ⚠️  No successful nominal trial – skipping Figure 4.1")
 
-    # ------------------------------------------------------------
     # Figure 4.2: Stable recovery (μ=0.20, η=0.20)
-    # ------------------------------------------------------------
-    print("  Figure 4.2: Stable recovery")
     stable = next((r for r in results if r['mu']==0.20 and r['eta']==0.20), None)
     if stable and stable['success'] and stable['wind_applied']:
         plt.figure(figsize=(10,5))
         plt.plot(stable['time'], stable['pitch'], 'b-', linewidth=2, label='Pitch Response')
         # wind injection line
-        wind_idx = np.argmin(np.abs(stable['time'] - 0.2))  # rough, better to store wind time
-        wind_time = stable['time'][wind_idx]
+        wind_time = stable['wind_time']
         plt.axvline(x=wind_time, color='k', linestyle='--', alpha=0.7, label='Wind Injection')
         plt.axhline(y=2, color='g', linestyle=':', label='±2° Band')
         plt.axhline(y=-2, color='g', linestyle=':')
@@ -102,27 +118,25 @@ def main():
                        label=f"Settling: {stable['settling_time']:.2f}s")
         plt.xlabel('Time (s)')
         plt.ylabel('Pitch Angle (deg)')
-        plt.title(f"Figure 4.2: Stable Recovery (μ=0.20, η=0.20)")
+        plt.title('Figure 4.2: Stable Recovery (μ=0.20, η=0.20)')
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.ylim(-30,30)
         plt.savefig('figure_4_2_stable.png', dpi=300)
         plt.close()
+        print("  ✅ Figure 4.2 saved")
+    else:
+        print("  ⚠️  No successful stable trial – skipping Figure 4.2")
 
-    # ------------------------------------------------------------
-    # Figure 4.3: Unstable divergence (μ=0.20, η=0.41) – find a failure at high eta
-    # ------------------------------------------------------------
-    print("  Figure 4.3: Unstable divergence")
-    # Find a failure for μ=0.20, eta > 0.4
-    unstable = next((r for r in results if r['mu']==0.20 and r['eta']>0.4 and not r['success']), None)
+    # Figure 4.3: Unstable divergence
+    # Try μ=0.20, η=0.4 or μ=0.25, η=0.0
+    unstable = next((r for r in results if r['mu']==0.20 and r['eta']>0.3 and not r['success']), None)
     if not unstable:
-        # fallback: μ=0.25, η=0.0 often fails
-        unstable = next((r for r in results if r['mu']==0.25 and r['eta']==0.0), None)
+        unstable = next((r for r in results if r['mu']==0.25 and r['eta']==0.0 and not r['success']), None)
     if unstable:
         plt.figure(figsize=(10,5))
         plt.plot(unstable['time'], unstable['pitch'], 'r-', linewidth=2, label='Pitch Response')
         plt.axhline(y=45, color='k', linestyle='--', linewidth=2, label='Failure Threshold (45°)')
-        # find first time pitch exceeds 45°
         exceed_idx = np.where(np.abs(unstable['pitch']) > 45)[0]
         if len(exceed_idx) > 0:
             fail_time = unstable['time'][exceed_idx[0]]
@@ -136,12 +150,11 @@ def main():
         plt.ylim(-10, 90)
         plt.savefig('figure_4_3_unstable.png', dpi=300)
         plt.close()
+        print("  ✅ Figure 4.3 saved")
+    else:
+        print("  ⚠️  No failure trial found – skipping Figure 4.3")
 
-    # ------------------------------------------------------------
     # Figure 4.4: Stability Sufficiency Map
-    # ------------------------------------------------------------
-    print("  Figure 4.4: Stability Sufficiency Map")
-    # Compute maximum eta for each mu where success is True
     stability_limits = {}
     for mu in MASS_RATIOS:
         mu_results = [r for r in results if r['mu'] == mu and r['success']]
@@ -152,11 +165,9 @@ def main():
             stability_limits[mu] = 0.0
 
     plt.figure(figsize=(12,8))
-    # Scatter all points
     for r in results:
         color = 'green' if r['success'] else 'red'
         plt.scatter(r['mu'], r['eta'], c=color, alpha=0.6, edgecolors='k', s=50)
-    # Stability boundary
     mu_vals = sorted(stability_limits.keys())
     eta_vals = [stability_limits[m] for m in mu_vals]
     plt.plot(mu_vals, eta_vals, 'k-', linewidth=3, label='Stability Boundary')
@@ -171,10 +182,9 @@ def main():
     plt.ylim(0, 0.6)
     plt.savefig('figure_4_4_stability_map.png', dpi=300)
     plt.close()
+    print("  ✅ Figure 4.4 saved")
 
-    # ------------------------------------------------------------
-    # Table 4.1: Print quantitative results
-    # ------------------------------------------------------------
+    # Print Table 4.1
     print("\n" + "="*60)
     print("TABLE 4.1: Stability Limits and Quality Metrics")
     print("="*60)
@@ -182,7 +192,6 @@ def main():
     print("-"*60)
     for mu in MASS_RATIOS:
         eta_max = stability_limits[mu]
-        # Find a representative successful trial at this mu with highest eta
         rep = next((r for r in results if r['mu']==mu and r['eta']==eta_max and r['success']), None)
         if rep:
             settle = f"{rep['settling_time']:.3f}" if rep['settling_time'] else 'N/A'
@@ -192,13 +201,14 @@ def main():
             print(f"{mu:.2f}    {eta_max:.3f}       {'N/A':<20} {'N/A':<20}")
     print("="*60)
 
-    print("\nFiles generated:")
-    print("  - pybullet_results_final.csv")
-    print("  - figure_4_1_nominal.png")
-    print("  - figure_4_2_stable.png")
-    print("  - figure_4_3_unstable.png")
-    print("  - figure_4_4_stability_map.png")
-    print("\nDone.")
-
 if __name__ == "__main__":
-    main()
+    print("SLATOL Experiment - FIXED VERSION")
+    print("="*60)
+    print("1. Run full parameter sweep")
+    print("2. Debug mode (single trial with GUI)")
+    choice = input("Select mode (1/2): ").strip()
+
+    if choice == '2':
+        run_debug()
+    else:
+        run_sweep()
